@@ -163,7 +163,6 @@ class carray_simple_set : public virtual simple_set<T> {
         if(item < low || item >= high){
             throw out_of_bounds();
         }
-        cout << "inserting " << item << std::endl;
         int word_index = item/64;
         int bit_index = item%64;
         arr[word_index] |= 1UL << bit_index;
@@ -173,7 +172,6 @@ class carray_simple_set : public virtual simple_set<T> {
         if(item < low || item >= high){
             throw out_of_bounds();
         }
-        cout << "removing " << item << std::endl;
         int word_index = item/64;
         int bit_index = item%64;
         arr[word_index] &= ~(1UL << bit_index);
@@ -638,22 +636,48 @@ class std_range_set : public virtual range_set<T, C>,
 
 //---------------------------------------------------------------
 
-/// Fill out
 template<typename T, typename C = comp<T>, typename I = increment<T>>
-class carray_range_set : public virtual range_set<T, C> {
+class carray_range_set : public virtual range_set<T, C>, public carray_simple_set<T> {
     // 'virtual' on range_set ensures single copy if multiply inherited
     static_assert(std::is_integral<T>::value, "Integral type required.");
     I inc;
   public:
-    /**
-     * @throws out_of_bounds 
-     */
-    virtual carray_range_set<T, C, I>& operator+=(const range<T, C> r) throw(out_of_bounds) = 0;
-
-    /**
-     * @throws out_of_bounds 
-     */
-    virtual carray_range_set<T, C, I>& operator-=(const range<T, C> r) throw(out_of_bounds) = 0;
+    
+    //Barebones constructor
+    carray_range_set(const T l, const T h) : carray_simple_set<T>(l,h) {
+    }
+    
+    //Call inherited methods
+    virtual carray_simple_set<T>& operator+=(const T item) {
+    	return carray_simple_set<T>::operator+=(item);
+    }
+    virtual carray_simple_set<T>& operator-=(const T item) {
+        return carray_simple_set<T>::operator-=(item);
+    }
+    virtual bool contains(const T& item) const {
+        return carray_simple_set<T>::contains(item);
+    }
+    
+    //Use incrementing insertion
+    virtual carray_range_set<T, C, I>& operator+=(const range<T, C> r){
+    
+    	for (T i = (r.closed_low() ? r.low() : inc(r.low()));
+    	           r.contains(i); i = inc(i)) {
+    		*this += i;
+    		//carray_simple_set<T>& operator+=(const T item);
+    	}
+    	return *this;
+    }
+    
+    //Increment for deletion
+    virtual carray_range_set<T, C, I>& operator-=(const range<T, C> r){
+    	for (T i = (r.closed_low() ? r.low() : inc(r.low()));
+    	         r.contains(i); i = inc(i)) {
+    		if(this->contains(i))
+    			*this -= i;
+    	}
+    	return *this;
+    }
 };
 
 //---------------------------------------------------------------
@@ -668,7 +692,7 @@ class hashed_range_set : public virtual range_set<T, C> {
     /**
      * @throws overflow
      */
-    virtual hashed_range_set<T, F, C, I>& operator+=(const range<T, C> r) throw(overflow) = 0;
+    virtual hashed_range_set<T, F, C, I>& operator+=(const range<T, C> r) = 0;
 };
 //---------------------------------------------------------------
 
@@ -676,11 +700,137 @@ class hashed_range_set : public virtual range_set<T, C> {
 template<typename T, typename C = comp<T>>
 class bin_range_set : public virtual range_set<T, C> {
     // 'virtual' on range_set ensures single copy if multiply inherited
-  public:
+    range<T> arr[10] = {};
+    int max_count = 10;
+    int current_count = 0;
+    C cmp;
+
+    public:
+    bin_range_set<T,C>(const double n){
+        //max_count = n;
+	(void) n;
+    }
+
+    void deleteByIndex(int index); //Decrement current_count if successful
+    void insertAtIndex(range<T> newrange, int index) //Increment current_count if successful
+    {
+      // Cannot insert more elements if n is already 
+      // more than or equal to capcity 
+      if (current_count+1 == max_count) throw overflow();
+  
+      int i; 
+      for (i = current_count - 1; (i >= 0 && i > index); i--) 
+          arr[i + 1] = arr[i]; 
+  
+      arr[i + 1] = newrange; 
+  
+      return; 	
+    }
+    //Returns 0 if in range, 1 if greater than range, -1 if less than range
+    int cmpToRange(range<T> r, T value)
+    {
+	//Is T within the left bound of the range?
+	bool inleft = (r.closed_low ? (cmp.precedes(r.low, value) || cmp.equals(r.low, value)) : cmp.precedes(r.low, value));
+	//Right bound?	
+	bool inright = (r.closed_high ? (cmp.precedes(value, r.high) || cmp.equals(value, r.high)) : cmp.precedes(value, r.low));
+
+	if (inleft && inright) return 0;
+	else if (inleft && !inright) return 1;
+	else if (!inleft && inright) return -1;
+	else { printf("This shouldn't happen!"); return 100; }
+    }
+
+    //Finds index of element if it exists in the ranges, otherwise returns -1;
+    int findIndex(int l, int r, T target)
+    {
+      
+      if (r >= l) 
+      { 
+        int mid = l + (r - l) / 2; 
+  
+        //Found it at this midpoint
+        if (cmpToRange(arr[mid], target) == 0)//In range 
+            return mid; 
+  
+        //Element is smaller than midpoint and must be in first half
+        if (cmpToRange(arr[mid], target) == -1) 
+            return findIndex(arr, l, mid - 1, target); 
+  
+        //Element is bigger than midpoint and must be in second half
+        return findIndex(arr, mid + 1, r, target); 
+      } 
+  
+    // Element not in array 
+    return -1; 
+	
+    }
+
+    int findClosestLeftIndex(int l, int r, T target);
+    int findClosestRightIndex(int l, int r, T target);
+    	
+
     /**
      * @throws overflow
      */
-    virtual bin_range_set<T, C>& operator+=(const range<T, C> r) throw(overflow) = 0;
+    virtual bin_range_set<T, C>& operator+=(const range<T, C> r)
+    {
+	int indexOfLeft = findIndex(0, current_count-1, r.low);
+	int indexOfRight = findIndex(0, current_count-1, r.high);
+	
+	if (indexOfLeft == -1 && indexOfRight == -1)//Neither end in set
+	{
+		int CL = GetClosestLeftIndex(0, current_count-1, r.low);//Find the range closest left of r.low
+		int CR = GetClosestRightIndex(0, current_count-1, r.high);//Same for right
+		if ((CR-CL) <= 1) insertAtIndex(r, CL+1); //In an empty gap between two ranges
+		else
+		{
+		  for(int i = 0; i < CR-CL-1; i++)//Eat all ranges between the original CL and CR ranges
+		  {
+		    deleteByIndex(CL+1);//Later indicies will be shuffled down one by one towards CL+1
+		  }
+
+		  insertAtIndex(r, CL+1); //Add new range at CL+1		
+		}
+	}
+	else if (indexOfLeft != -1 && indexOfRight == -1)//Only right side isn't in a range
+	{
+		  int LI = findIndex(0, current_count-1, r.low);//Index of range that r.low is in
+		  int CR = GetClosestRightIndex(0, current_count-1, r.high);//Index of closest set to the right of r.high
+		  arr[LI].high = r.high; arr[LI].closed_high = r.closed_high;
+		  if ((CR-LI) > 1)
+		  {
+		    for(int i = 0; i < CR-LI-1; i++)//Eat all ranges between the original LI and CR ranges
+		    {
+			deleteByIndex(LI+1);//Later indicies will be shuffled down one by one towards LI+1
+		    }
+		  }
+	}
+	else if (indexOfLeft == -1 && indexOfRight != -1)//Only left side isn't in a range
+	{
+		  int RI = findIndex(0, current_count-1, r.high);//Index of range that r.high is in
+		  int CL = GetClosestLeftIndex(0, current_count-1, r.low);//Index of closest set to the left of r.low
+		  arr[RI].low = r.low; arr[RI].closed_low = r.closed_low; 
+		  if ((RI-CL) > 1)
+		  {
+		    for(int i = 0; i < RI-CL-1; i++)//Eat all ranges between the original RI and CL ranges
+		    {
+			deleteByIndex(CL+1);//Later indicies will be shuffled down one by one towards CL+1
+		    }
+		  }
+	}
+	else
+	{
+	  	arr[indexOfLeft].high = arr[indexOfRight].high;
+		arr[indexOfLeft].closed_high = arr[indexOfRight].closed_high;
+		for(int i = 0; i < indexOfRight-indexOfLeft; i++)//Eat all ranges between the original RI and LI ranges
+		{
+		  deleteByIndex(indexOfLeft+1);//Later indicies will be shuffled down one by one towards CL+1
+		}
+	}
+    }
+    
+    virtual bin_range_set<T, C>& operator-=(const range<T, C> r) = 0;
+    virtual bool contains(const T& item) const = 0;    
 };
 
 //===============================================================

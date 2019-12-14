@@ -71,7 +71,6 @@ int main() {
     *hashtest -= 4.f;
     cout << "has 4.f: " << hashtest->contains(4.f) << std::endl;
 
-/* this code causes a seg fault
     bin_search_simple_set<int>* bin_test = new bin_search_simple_set<int>(5);
     *bin_test += 2;
     *bin_test += -1;
@@ -82,7 +81,15 @@ int main() {
     *bin_test += 6;
     *bin_test -= 3;
     
-    bin_test->printBST(bin_test->root);
-    printf("%d", bin_test->contains(3));
-    */
+    cout << "bin search set has 3:" << bin_test->contains(3);
+    
+    range<int> range1(1.f, true, 10.f, true);
+    range<int> range2(10.f, true, 15.f, true);
+    range<int> range3(8.f, true, 12.f, true);
+    carray_range_set<int>* testrange = new carray_range_set<int>(1, 100);
+    *testrange += range1;
+    *testrange += range2;
+    cout << testrange->contains(10);
+    *testrange -= range3;
+    cout << testrange->contains(10);
 }
